@@ -1,128 +1,87 @@
 ---
-name: grid-queue-map-improved
-description: Use this skill when the user wants an improved interactive Great Britain electricity grid connection queue map using live NESO TEC Register data. It visualises battery/storage, solar PV, onshore wind, offshore wind, or generic demand connections across GB, starts with honest HOST TO regional buckets, and upgrades to T1-T9 project/site mapping when the user provides a trusted site_zone_lookup.csv. Trigger phrases include "improved grid queue map", "interactive TEC queue map", "map NESO queue", "show battery/solar/wind queue on a map", "GB connection queue map", "T1-T9 queue map", "upload site zone lookup", "map grid capacity", "connection headroom map", and "where is grid capacity constrained". Great Britain only.
+name: grid-queue-map- 
+description: Use this skill whenever the user wants an interactive Great Britain electricity grid connection queue map built from live NESO TEC Register data — including any request to "run", "build", "regenerate", "update" or "improve" the grid queue map, change its technology focus (battery/storage, solar PV, onshore wind, offshore wind, demand), add or adjust the site_zone_lookup.csv workflow, or modify the map's filters, table, or styling. Trigger phrases include "grid queue map", "TEC queue map", "map the NESO queue", "show battery/solar/wind queue on a map", "GB connection queue map", "T1-T9 queue map", "connection headroom map", "where is grid capacity constrained", and "upload site zone lookup". Also trigger when the user asks to tweak or extend a previously generated gb-grid-queue-map.html file. Great Britain only.
 ---
 
-# Grid Queue Map Improved — Great Britain NESO TEC Queue
+# Grid Queue Map Improved — GB NESO TEC Queue (v2)
 
-Build a standalone, browser-based HTML map that visualises the Great Britain electricity connection queue from the NESO TEC Register. The tool must be credible first and visually useful second: it must never invent precise project locations, T1-T9 zones, capacities, or queue counts.
+Deliver a standalone, browser-based HTML map of the Great Britain electricity connection
+queue from the NESO TEC Register. The tool is credible first, visual second: it must never
+invent project locations, T1–T9 zones, capacities, or queue counts.
 
-The improved version has five key upgrades over the basic grid-queue-map skill:
+## Fast path (default — use this unless the user asks for modifications)
 
-1. A technology switcher inside the HTML, so the user can switch between battery/storage, solar PV, onshore wind, offshore wind, and demand connections without regenerating the file.
-2. A user-uploaded `site_zone_lookup.csv` workflow, so coarse HOST TO-only data can be upgraded into matched T1-T9 zones and map markers.
-3. Confidence labels for every project row: High, Medium, Low, or Unknown.
-4. A searchable/filterable project table with CSV export.
-5. Safer rendering, including escaping live API values before injecting them into HTML.
+A fully verified reference implementation is bundled with this skill. Do not regenerate it
+from scratch; regeneration risks reintroducing bugs and breaking the honesty rules.
 
----
+1. Copy `assets/gb-grid-queue-map.html` (relative to this SKILL.md) to the outputs
+   directory, optionally renaming per the user's request.
+2. Optionally verify the NESO API is reachable with ONE test call (the aggregate SQL below
+   for battery). If it succeeds, mention the live headline numbers to the user. If it
+   fails, still deliver the file — it is a live-fetching shell with its own error state —
+   but tell the user the API was unreachable at generation time.
+3. Present the file. Tell the user it fetches live data on open, starts in coarse
+   HOST TO mode, and upgrades to T1–T9 site markers when they upload a trusted
+   `site_zone_lookup.csv` (a template is downloadable inside the page).
 
-## Core honesty rule
+## Modification path
 
-The NESO TEC Register does **not** provide latitude/longitude and does **not** provide a direct T1-T9 transmission zone field.
+When the user asks for changes, copy the asset to the working directory, edit it, then
+re-verify before delivering:
 
-The relevant geography fields in the TEC Register are:
+- Extract the embedded `<script>` block and run `node --check` on it.
+- Check for duplicate HTML `id` attributes.
+- Keep every rule in "Core honesty rules" intact — they are non-negotiable regardless of
+  what is being changed.
 
-- `Connection Site` — best available project-level location clue.
-- `HOST TO` — broad transmission owner only:
-  - `SHET` = Scottish Hydro Electric Transmission / north Scotland transmission area.
-  - `SPT` = SP Transmission / central and southern Scotland transmission area.
-  - `NGET` = National Grid Electricity Transmission / England and Wales transmission area.
+Map of the file for targeted edits:
+- CSS design tokens: `:root` block at the top (`--p0`…`--p4` are the pressure ramp).
+- Constants: `RESOURCE`, `API`, `TOPO_URLS`, `TECHS`, `RAMP`, `HOST_ANCHORS`, `CITIES`.
+- SQL builders: `sqlAggregate()`, `sqlProjects()`.
+- Lookup matching: `parseCSV`, `normName`, `diceCoeff`, `buildLookupIndex`, `matchRows`.
+- Rendering: `renderCards`, `renderMap` (zoom + bubbles + markers), `renderReadout`,
+  `visibleRows`/`renderTable` (filters + chunking), `exportCSV`.
+- Orchestration: `refresh(force)` with per-tech in-memory `cache`.
+
+## Core honesty rules (non-negotiable)
+
+The TEC Register provides NO latitude/longitude and NO direct T1–T9 field. Geography comes
+only from:
+- `Connection Site` — best project-level location clue.
+- `HOST TO` — broad transmission owner only: SHET (north Scotland), SPT (central &
+  southern Scotland), NGET (England & Wales).
 
 Therefore:
+- Never claim HOST TO gives an exact project location.
+- Never claim the TEC Register directly provides T1–T9.
+- Never allocate NGET projects across T3–T9 proportionally.
+- Never place a precise project marker unless Connection Site matched a trusted lookup.
+- Unmatched records stay in coarse HOST TO buckets, clearly labelled as regional/coarse.
+- Never colour T3–T9 from NGET counts unless rows are individually matched to T-zones.
+- The HTML must always show this caveat: "The TEC Register does not provide coordinates
+  or a direct T1–T9 field. T1–T9 is derived by matching Connection Site to a reference
+  site/zone lookup. Records that cannot be matched are grouped only by HOST TO — SHET,
+  SPT or NGET — so they are regional/coarse, not exact project locations."
+- A static snapshot is only allowed if built at generation time from a successful live
+  API response and stamped with the fetch date. Never invent a snapshot. The default
+  deliverable performs the live fetch itself when opened and shows "live data
+  unavailable" if the browser fetch fails.
 
-- Never claim `HOST TO` gives an exact project location.
-- Never claim the TEC Register directly provides T1-T9.
-- Never allocate NGET projects across T3-T9 proportionally.
-- Never place a precise project marker unless `Connection Site` has been matched to a trusted lookup.
-- If no reliable match exists, keep the project in a coarse HOST TO bucket.
+## NESO API contract
 
-Always include this user-facing caveat in the HTML:
+Resource ID: `17becbab-e3e8-473f-b303-3806f43a6a10`
+Endpoint: `https://api.neso.energy/api/3/action/datastore_search_sql?sql=<URL_ENCODED_SQL>`
 
-> The TEC Register does not provide coordinates or a direct T1-T9 field. T1-T9 is derived by matching `Connection Site` to a reference site/zone lookup. Records that cannot be matched are grouped only by `HOST TO` — SHET, SPT or NGET — so they are regional/coarse, not exact project locations.
+Maximum TWO API calls per technology refresh: one aggregate, one project list. The asset
+also caches results per technology in memory so toggling technologies does not refetch;
+the "Refresh live data" button forces a new fetch.
 
----
+Verified columns: Project Name, Customer Name, Connection Site, Stage, MW Connected,
+MW Increase / Decrease, Cumulative Total Capacity (MW), MW Effective From, Project Status,
+Agreement Type, HOST TO, Plant Type, Project ID, Project Number, Gate. Do not probe other
+columns unless a query fails because NESO changed the dataset.
 
-## Technology mapping
-
-The HTML must include a technology selector using these mappings:
-
-| UI label | TEC Register `Plant Type` ILIKE pattern |
-|---|---|
-| Battery / storage | `%Energy Storage System%` |
-| Solar PV | `%PV Array%` |
-| Onshore wind | `%Wind Onshore%` |
-| Offshore wind | `%Wind Offshore%` |
-| Demand connections | `%Demand%` |
-
-Default to battery/storage.
-
-`Plant Type` is semicolon-delimited and multi-valued, so use `ILIKE` to catch co-located and hybrid projects.
-
-### Demand caveat
-
-If the selected technology is Demand, show this warning clearly:
-
-> Demand is the TEC Register’s generic demand/load plant type. It is not a data-centre count. It may include power-station auxiliary load, hydrogen/electrolyser schemes, green energy hubs, and other transmission-connected demand.
-
-Do not label Demand as data centres.
-
----
-
-## NESO API resource
-
-Resource ID:
-
-```text
-17becbab-e3e8-473f-b303-3806f43a6a10
-```
-
-Use the CKAN SQL endpoint:
-
-```text
-https://api.neso.energy/api/3/action/datastore_search_sql?sql=<URL_ENCODED_SQL>
-```
-
-Verified columns:
-
-```text
-Project Name
-Customer Name
-Connection Site
-Stage
-MW Connected
-MW Increase / Decrease
-Cumulative Total Capacity (MW)
-MW Effective From
-Project Status
-Agreement Type
-HOST TO
-Plant Type
-Project ID
-Project Number
-Gate
-```
-
-Do not probe columns unless NESO changes the dataset and the query fails.
-
----
-
-## API efficiency contract
-
-Use no more than two NESO API calls per technology refresh:
-
-1. One aggregate SQL call for headline totals.
-2. One project-list SQL call for project rows and matching.
-
-The standalone HTML should perform the live fetch itself when opened. Do not hard-code live counts or capacities.
-
-A static snapshot fallback is only allowed if it is built at generation time from a successful live API response and stamped with the fetch date. If live fetch fails during generation, do not invent a snapshot. The HTML should still function as a live-fetching shell and display “live data unavailable” if the browser fetch fails.
-
----
-
-## Aggregate SQL
-
-Build this query dynamically from the selected pattern, without the surrounding `%` in the JavaScript variable if you re-add `%` inside SQL.
+Aggregate SQL (substitute the pattern without surrounding % signs):
 
 ```sql
 SELECT COUNT(*) total,
@@ -137,216 +96,136 @@ SELECT COUNT(*) total,
   SUM(CASE WHEN "Project Status"=$$Consents Approved$$ THEN 1 ELSE 0 END) st_approved,
   SUM(CASE WHEN "Project Status"=$$Built$$ THEN 1 ELSE 0 END) st_built
 FROM "17becbab-e3e8-473f-b303-3806f43a6a10"
-WHERE "Plant Type" ILIKE $$%<PATTERN_WITHOUT_PERCENT_SIGNS>%$$
+WHERE "Plant Type" ILIKE $$%<PATTERN>%$$
 ```
 
-Read values from `result.records[0]`.
-
----
-
-## Project-list SQL
-
-Use this as the optional but recommended second call:
+Project-list SQL:
 
 ```sql
-SELECT "Project Name" pn,
-       "Customer Name" cn,
-       "Connection Site" cs,
-       "HOST TO" h,
-       "Project Status" ps,
-       "Agreement Type" agr,
-       "Cumulative Total Capacity (MW)" cap,
-       "Plant Type" plant
+SELECT "Project Name" pn, "Customer Name" cn, "Connection Site" cs, "HOST TO" h,
+       "Project Status" ps, "Agreement Type" agr,
+       "Cumulative Total Capacity (MW)" cap, "Plant Type" plant
 FROM "17becbab-e3e8-473f-b303-3806f43a6a10"
-WHERE "Plant Type" ILIKE $$%<PATTERN_WITHOUT_PERCENT_SIGNS>%$$
+WHERE "Plant Type" ILIKE $$%<PATTERN>%$$
 ORDER BY "Cumulative Total Capacity (MW)" DESC
 ```
 
-Important SQL gotcha: do not alias `Agreement Type` as `at`; `AT` can behave as a reserved keyword. Use `agr`.
+SQL gotcha: never alias `Agreement Type` as `at` — it can behave as a reserved keyword.
+Use `agr`.
 
----
+## Technology mapping
 
-## `site_zone_lookup.csv` upgrade workflow
+| UI label | Plant Type ILIKE pattern |
+|---|---|
+| Battery / storage (default) | %Energy Storage System% |
+| Solar PV | %PV Array% |
+| Onshore wind | %Wind Onshore% |
+| Offshore wind | %Wind Offshore% |
+| Demand connections | %Demand% |
 
-The HTML should include a file input allowing the user to upload a trusted CSV lookup.
+Plant Type is semicolon-delimited and multi-valued; ILIKE catches co-located/hybrid
+projects. When Demand is selected, the page must show: "Demand is the TEC Register's
+generic demand/load plant type. It is not a data-centre count. It may include
+power-station auxiliary load, hydrogen/electrolyser schemes, green energy hubs, and other
+transmission-connected demand." Never label Demand as data centres.
+
+## Coarse mode (default before lookup upload)
+
+Show one dashed pressure bubble per HOST TO area with live projects, at representative
+regional anchor points — explicitly labelled "(coarse)" and tooltipped as HOST TO coarse
+pressure only, not project locations or T1–T9 pressure:
+- SHET ≈ 57.6, −4.4 (north Scotland)
+- SPT ≈ 55.6, −3.9 (central & southern Scotland)
+- NGET ≈ 52.6, −1.6 (England & Wales)
+
+Bubble size reflects a transparent metric (GW); colour uses the five-step ramp ranked
+across the three buckets. After a lookup upload, unmatched records stay in these buckets
+while matched records get site markers.
+
+## site_zone_lookup.csv workflow
 
 Expected columns:
+`site_name,aliases,lat,lon,neso_zone,host_to,dno,voltage_kv,gen_headroom,source,confidence_base`
+(minimum useful: site_name, aliases, lat, lon, neso_zone, host_to, dno, voltage_kv).
+The page includes a "Download template" button producing this header plus one worked
+example row.
 
-```csv
-site_name,aliases,lat,lon,neso_zone,host_to,dno,voltage_kv,gen_headroom,source,confidence_base
-```
+Matching procedure per TEC row:
+1. Normalise both sides: lowercase; strip punctuation; remove matching-only words
+   (substation, gsp, grid supply point, 400kv, 275kv, 132kv, kv); collapse whitespace.
+2. Exact match against site_name, then against each semicolon-separated alias.
+3. Conservative fuzzy match only if unambiguous (asset uses Dice coefficient ≥ 0.92 with
+   a clear margin over the second-best candidate).
+4. Multiple possible matches → mark ambiguous, do NOT place a marker.
+5. No match → HOST TO fallback bucket only.
 
-Minimum useful columns:
-
-```csv
-site_name,aliases,lat,lon,neso_zone,host_to,dno,voltage_kv
-```
-
-### Matching procedure
-
-For each TEC project row:
-
-1. Normalise `Connection Site` and lookup names:
-   - lowercase;
-   - strip punctuation;
-   - remove matching-only words such as `substation`, `gsp`, `grid supply point`, `400kv`, `275kv`, `132kv`, `kv`;
-   - collapse whitespace.
-2. Exact match `Connection Site` against `site_name`.
-3. Exact match against each semicolon-separated alias.
-4. Conservative fuzzy match only if score is high enough and unambiguous.
-5. If multiple possible matches exist, mark ambiguous and do not place a precise marker.
-6. If no match exists, use `HOST TO` fallback only.
-
-### Confidence levels
+Confidence levels:
 
 | Level | Meaning | Map treatment |
 |---|---|---|
-| High | `Connection Site` exact or alias match to trusted lookup | Place marker at lookup lat/lon and assign T1-T9 |
-| Medium | Strong inferred local clue, but not exact site | Optional approximate area only; label as inferred |
-| Low | `HOST TO` only | Do not place exact marker; keep in SHET/SPT/NGET bucket |
-| Unknown | No usable geography | Keep in table only |
+| High | Exact/alias/unambiguous-fuzzy lookup match | Marker at lookup lat/lon, T-zone assigned |
+| Medium | Strong inferred local clue (optional, conservative — NOT in default asset) | Approximate area only, labelled inferred |
+| Low | HOST TO only (incl. ambiguous matches) | Stay in SHET/SPT/NGET bucket |
+| Unknown | No usable geography | Table only |
 
-The default improved HTML may start with High/Low/Unknown only. Medium inference is optional and should be conservative.
+After upload, report the match outcome (matched / ambiguous / unmatched counts) next to
+the upload control.
 
----
+## Map and UI requirements
 
-## Map requirements
+Real GB map (not a schematic) via CDN:
+- d3 7.8.5 and topojson 3.0.2 from cdnjs.
+- GB topology: `https://cdn.jsdelivr.net/npm/datamaps@0.5.10/src/js/data/gbr.topo.json`
+  with unpkg as a fallback URL.
+- `d3.geoMercator().fitSize(...)` over `topojson.feature(gb, gb.objects.gbr)`.
 
-Render a real GB map, not a schematic.
+The page must include:
+- Header with selected technology and a live / fetching / unavailable status pill.
+- Technology selector + "Refresh live data" (forces refetch past the per-tech cache).
+- Lookup upload control + template download + match-outcome status line.
+- Headline cards: total projects, total GW, SHET/SPT/NGET counts, Direct Connection,
+  Embedded, and the Scoping/Awaiting/Approved/Built status mix.
+- Zoomable, pannable map (d3.zoom, scale 1–9, "Reset view" button) with coastline,
+  orientation cities, coarse HOST TO bubbles, matched markers, and a legend covering the
+  pressure ramp, the dashed coarse-bubble style, and matched markers.
+- Click-to-filter: clicking a HOST TO bubble filters the table to that area (click again
+  to clear); clicking a matched marker filters the table to that connection site.
+- Plain-English read-out: coarse-mode explanation OR matched-zone league (least/most
+  congested among matched rows only); HOST TO fallback counts and GW; unresolved
+  projects/GW; Direct vs Embedded mix; status maturity (Scoping share vs Built); note
+  that ≤~100 MW projects may suit DNO/distribution routes; two next steps
+  (transmission pre-application with NGET/SHET/SPT; DNO pre-application + GSP headroom
+  check).
+- Project table with columns: Project, Customer, Connection Site, HOST TO, Derived Zone,
+  Zone Source, Confidence, Project Status, Agreement Type, MW, DNO, Voltage. Filters:
+  free-text search (debounced), HOST TO, Project Status, Confidence, minimum MW.
+  Sortable headers. Chunked rendering (first 400 rows + "Show all"). CSV export covers
+  the full filtered set, not just the rendered chunk.
 
-Use D3 and TopoJSON from CDN:
+## Colour ramp (queue pressure)
 
-```html
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 ```
-
-Use a GB topology file such as:
-
-```text
-https://cdn.jsdelivr.net/npm/datamaps@0.5.10/src/js/data/gbr.topo.json
-```
-
-Project with:
-
-```js
-const feats = topojson.feature(gb, gb.objects.gbr);
-const proj = d3.geoMercator().fitSize([mapWidth, mapHeight], feats);
-const [x, y] = proj([lon, lat]);
-```
-
-Only place project/site markers when lat/lon come from a trusted lookup match.
-
----
-
-## UI requirements
-
-The generated HTML should include:
-
-1. Header with selected technology and live/snapshot/unavailable status.
-2. Technology selector.
-3. Optional `site_zone_lookup.csv` upload control.
-4. Headline cards:
-   - total projects;
-   - total GW;
-   - SHET count;
-   - SPT count;
-   - NGET count;
-   - Direct Connection count;
-   - Embedded count;
-   - Scoping / Awaiting Consents / Consents Approved / Built.
-5. Real GB map with:
-   - coastline;
-   - major cities for orientation;
-   - coarse HOST TO regional bucket labels;
-   - matched markers only where lookup confidence permits;
-   - legend showing open to severe queue pressure.
-6. Read-out panel showing:
-   - matched to T-zone: project count and GW;
-   - unresolved by T-zone: project count and GW;
-   - HOST TO fallback counts;
-   - greenest / least congested matched zones if available;
-   - reddest / most congested matched zones if available;
-   - caveat if no lookup is uploaded.
-7. Searchable project table with columns:
-   - Project;
-   - Customer;
-   - Connection Site;
-   - HOST TO;
-   - Derived Zone;
-   - Zone Source;
-   - Confidence;
-   - Project Status;
-   - Agreement Type;
-   - MW;
-   - DNO;
-   - voltage.
-8. Export visible/filtered table to CSV.
-
----
-
-## Colour rules
-
-Use this five-step queue pressure ramp:
-
-```text
-0 #1a9850  open / low pressure
+0 #1a9850  open / low
 1 #91cf60
 2 #fee08b
 3 #fc8d59
-4 #d73027  severe / high pressure
+4 #d73027  severe / high
 ```
 
-Queue pressure can be calculated for matched T-zones using a simple rank or quantile score based on matched project count and/or matched capacity. Make clear this applies only to matched rows.
+Pressure is a rank/quantile score from matched project count and/or capacity — applied
+to matched T-zones, and separately (clearly labelled coarse) to the three HOST TO
+buckets. Make explicit which rows feed which score.
 
-Do not colour T3-T9 from NGET counts unless those rows are individually matched to T-zones.
+## Safe rendering and resilience
 
----
-
-## Safe rendering requirements
-
-When rendering live API data into HTML:
-
-- escape project names, customer names, connection sites, statuses, and agreement types;
-- do not assign raw API strings to `innerHTML` unless escaped;
-- handle null/undefined values gracefully;
-- parse numeric capacity safely;
-- display `—` for missing values.
-
-Recommended helper:
-
-```js
-function esc(value){
-  return String(value ?? '—')
-    .replaceAll('&','&amp;')
-    .replaceAll('<','&lt;')
-    .replaceAll('>','&gt;')
-    .replaceAll('"','&quot;')
-    .replaceAll("'",'&#039;');
-}
-```
-
----
-
-## Plain-English read-out
-
-Below the map, include one concise read-out section:
-
-- If no lookup is uploaded: explain that the file is in coarse mode and needs `site_zone_lookup.csv` for T1-T9 mapping.
-- If lookup is uploaded: list the least congested and most congested matched T-zones.
-- State how many projects and GW remain unresolved by T-zone.
-- Explain the Direct Connection vs Embedded mix.
-- Explain the Project Status maturity, especially share in Scoping vs Built.
-- Mention that projects at or below about 100 MW may be more relevant to DNO pre-application or distribution connection routes, depending on location and technology.
-- Give two next steps:
-  1. For transmission-scale projects, request a pre-application or connection enquiry with NGET, SHET, or SPT as appropriate.
-  2. For distribution-scale projects, request a DNO pre-application and check local GSP/headroom data.
-
----
+- Escape ALL live API strings before inserting into HTML (the asset's `esc()` helper);
+  never assign raw API values to innerHTML.
+- Parse numerics defensively; display "—" for missing values.
+- 15-second fetch timeout via AbortController on every network call.
+- Fetch failure → clear error notice, layout retained, no invented figures.
 
 ## Output requirement
 
-Create a standalone `.html` file. It should work when opened locally in a normal browser. The page must fetch live NESO data on open. If the fetch is blocked, it must show a clear error and retain the layout.
-
-Do not provide only a screenshot or static chart. The deliverable is an interactive browser file.
-
+Deliver a standalone `.html` file that works opened locally, fetches live NESO data on
+open, and degrades gracefully if blocked. Never deliver only a screenshot or static
+chart. Place the file in the outputs directory and present it. 
